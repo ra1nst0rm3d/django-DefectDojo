@@ -102,6 +102,9 @@ def update_azure_groups(backend, uid, user=None, social=None, *args, **kwargs):
         if settings.AZUREAD_TENANT_OAUTH2_CLEANUP_GROUPS:
             cleanup_old_groups_for_user(user, group_names)
 
+def update_keycloak_groups(backend, uid, user=None, social=None, *args, **kwargs):
+    if settings.KEYCLOAK_OAUTH2_ENABLED and settings.KEYCLOAK_OAUTH2_GET_GROUPS and isinstance(backend, KeycloakOAuth2)
+        soc = user.social
 
 def is_group_id(group):
     if re.search(r'^[a-zA-Z0-9]{8,}-[a-zA-Z0-9]{4,}-[a-zA-Z0-9]{4,}-[a-zA-Z0-9]{4,}-[a-zA-Z0-9]{12,}$', group):
