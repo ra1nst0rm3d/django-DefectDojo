@@ -249,8 +249,11 @@ class UserContactInfo(models.Model):
 
 class Dojo_Group(models.Model):
     AZURE = 'AzureAD'
+    KEYCLOAK = 'KeyCloak'
+    
     SOCIAL_CHOICES = (
         (AZURE, _('AzureAD')),
+        (KEYCLOAK, _('KeyCloak'))
     )
     name = models.CharField(max_length=255, unique=True)
     description = models.CharField(max_length=4000, null=True, blank=True)

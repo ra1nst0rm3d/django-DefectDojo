@@ -124,6 +124,7 @@ def update_keycloak_groups(backend, uid, user=None, social=None, *args, **kwargs
             else:
                 logger.debug(f"Group {group} filtered out.")
         if len(group_names) > 0:
+            logger.warning(f"Found groups: {group_names}, typeof(user): {type(user)}")
             assign_user_to_groups(user, group_names, 'KeyCloak')
             
                     
