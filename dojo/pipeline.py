@@ -8,6 +8,7 @@ from django.conf import settings
 from dojo.models import Product, Product_Member, Product_Type, Role, Dojo_Group, Dojo_Group_Member
 from social_core.backends.azuread_tenant import AzureADTenantOAuth2
 from social_core.backends.google import GoogleOAuth2
+from social_core.backends.keycloak import KeycloakOAuth2
 from dojo.authorization.roles_permissions import Permissions, Roles
 from dojo.product.queries import get_authorized_products
 
@@ -103,8 +104,29 @@ def update_azure_groups(backend, uid, user=None, social=None, *args, **kwargs):
             cleanup_old_groups_for_user(user, group_names)
 
 def update_keycloak_groups(backend, uid, user=None, social=None, *args, **kwargs):
-    if settings.KEYCLOAK_OAUTH2_ENABLED and settings.KEYCLOAK_OAUTH2_GET_GROUPS and isinstance(backend, KeycloakOAuth2)
-        soc = user.social
+    if settings.KEYCLOAK_OAUTH2_ENABLED and settings.KEYCLOAK_OAUTH2_GET_GROUPS and isinstance(backend, KeycloakOAuth2):
+        group_names = []
+        token = kwargs['response']['access_token']
+        # logger.warning(f"Response: {kwargs['response']}")
+        # This thingy returns only access token and some unneccesary user info. Need second interaction
+        request_headers = {'Authorization': 'Bearer ' + token}
+        group_request = requests.get(settings.SOCIAL_AUTH_KEYCLOAK_USERINFO_URL, headers=request_headers)
+        group_request.raise_for_status()
+        group_request_json = group_request.json()
+        # Got Groups?
+        if 'Groups' not in group_request_json or group_request_json['Groups'] == "":
+            logger.warning("No groups on KeyCloak response.")
+            return    
+        for group in group_request_json['Groups']:
+            if settings.KEYCLOAK_OAUTH2_GROUPS_FILTER == "" or re.search(settings.KEYCLOAK_OAUTH2_GROUPS_FILTER, group):
+                logger.warning(f"Group name: {group}")
+                group_names.append(group)
+            else:
+                logger.debug(f"Group {group} filtered out.")
+        if len(group_names) > 0:
+            assign_user_to_groups(user, group_names, 'KeyCloak')
+            
+                    
 
 def is_group_id(group):
     if re.search(r'^[a-zA-Z0-9]{8,}-[a-zA-Z0-9]{4,}-[a-zA-Z0-9]{4,}-[a-zA-Z0-9]{4,}-[a-zA-Z0-9]{12,}$', group):
