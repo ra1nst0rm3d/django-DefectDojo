@@ -5,7 +5,7 @@ import requests
 
 import social_core.pipeline.user
 from django.conf import settings
-from dojo.models import Product, Product_Member, Product_Type, Role, Dojo_Group, Dojo_Group_Member
+from dojo.models import Product, Product_Member, Product_Type, Role, Dojo_Group, Dojo_Group_Member, Product_Type_Group
 from social_core.backends.azuread_tenant import AzureADTenantOAuth2
 from social_core.backends.google import GoogleOAuth2
 from social_core.backends.keycloak import KeycloakOAuth2
@@ -14,6 +14,7 @@ from dojo.product.queries import get_authorized_products
 
 logger = logging.getLogger(__name__)
 
+mapper = {'manager': Roles.Writer, 'developer': Roles.Reader, 'admin': Roles.Maintainer, 'developers': Roles.Reader}
 
 def social_uid(backend, details, response, *args, **kwargs):
     if settings.AZUREAD_TENANT_OAUTH2_ENABLED and isinstance(backend, AzureADTenantOAuth2):
@@ -104,20 +105,15 @@ def update_azure_groups(backend, uid, user=None, social=None, *args, **kwargs):
             cleanup_old_groups_for_user(user, group_names)
 
 def update_keycloak_groups(backend, uid, user=None, social=None, *args, **kwargs):
+    if user == None:
+        return
     if settings.KEYCLOAK_OAUTH2_ENABLED and settings.KEYCLOAK_OAUTH2_GET_GROUPS and isinstance(backend, KeycloakOAuth2):
         group_names = []
-        token = kwargs['response']['access_token']
-        # logger.warning(f"Response: {kwargs['response']}")
-        # This thingy returns only access token and some unneccesary user info. Need second interaction
-        request_headers = {'Authorization': 'Bearer ' + token}
-        group_request = requests.get(settings.SOCIAL_AUTH_KEYCLOAK_USERINFO_URL, headers=request_headers)
-        group_request.raise_for_status()
-        group_request_json = group_request.json()
         # Got Groups?
-        if 'Groups' not in group_request_json or group_request_json['Groups'] == "":
+        if 'groups' not in kwargs['response'] or kwargs['response']['groups'] == "":
             logger.warning("No groups on KeyCloak response.")
             return    
-        for group in group_request_json['Groups']:
+        for group in kwargs['response']['groups']:
             if settings.KEYCLOAK_OAUTH2_GROUPS_FILTER == "" or re.search(settings.KEYCLOAK_OAUTH2_GROUPS_FILTER, group):
                 logger.warning(f"Group name: {group}")
                 group_names.append(group)
@@ -126,6 +122,7 @@ def update_keycloak_groups(backend, uid, user=None, social=None, *args, **kwargs
         if len(group_names) > 0:
             logger.warning(f"Found groups: {group_names}, typeof(user): {type(user)}")
             assign_user_to_groups(user, group_names, 'KeyCloak')
+            assign_groups_to_product_types(group_names, 'KeyCloak')
             
                     
 
@@ -146,6 +143,16 @@ def assign_user_to_groups(user, group_names, social_provider):
         if is_member_created:
             logger.debug("User %s become member of group %s (social provider: %s)", user, str(group), social_provider)
 
+def assign_groups_to_product_types(group_names, social_provider):
+    for group_name in group_names:
+        product_name = group_name.split('_')[0]
+        rights = group_name.split('_')[1]
+        product_type, is_created = Product_Type.objects.get_or_create(name=product_name)
+        group = Dojo_Group.objects.get(name=group_name, social_provider=social_provider)
+        if is_created:
+            logger.warning("Product type created: {product_name}")
+        product_type_group, created = Product_Type_Group.objects.get_or_create(product_type=product_type, group=group, defaults={
+            'role': Role.objects.get(id=mapper[rights])})
 
 def cleanup_old_groups_for_user(user, group_names):
     for group_member in Dojo_Group_Member.objects.select_related('group').filter(user=user):
@@ -207,8 +214,20 @@ def sanitize_username(username):
 
 
 def create_user(strategy, details, backend, user=None, *args, **kwargs):
-    if not settings.SOCIAL_AUTH_CREATE_USER:
+    allow_flag = False
+    if not settings.SOCIAL_AUTH_CREATE_USER and settings.SOCIAL_AUTH_ALLOW_MASK == "":
         return
-    else:
+    if settings.SOCIAL_AUTH_ALLOW_MASK != "":
+        # Got groups?
+        if 'groups' not in kwargs['response'] or kwargs['response']['groups'] == "":
+            logger.warning("No groups on KeyCloak response.")
+            return
+        for group in kwargs['response']['groups']:
+            if re.search(settings.SOCIAL_AUTH_ALLOW_MASK, group):
+                logger.warn("Group found, allow creation")
+                allow_flag = True
+                break
+    if allow_flag:
         details["username"] = sanitize_username(details.get("username"))
         return social_core.pipeline.user.create_user(strategy, details, backend, user, args, kwargs)
+
