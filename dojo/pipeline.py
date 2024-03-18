@@ -5,7 +5,7 @@ import requests
 
 import social_core.pipeline.user
 from django.conf import settings
-from dojo.models import Product, Product_Member, Product_Type, Role, Dojo_Group, Dojo_Group_Member, Product_Type_Group
+from dojo.models import Product, Product_Member, Product_Type, Role, Dojo_Group, Dojo_Group_Member, Product_Type_Group, Global_Role
 from social_core.backends.azuread_tenant import AzureADTenantOAuth2
 from social_core.backends.google import GoogleOAuth2
 from social_core.backends.keycloak import KeycloakOAuth2
@@ -135,6 +135,11 @@ def is_group_id(group):
 
 def assign_user_to_groups(user, group_names, social_provider):
     for group_name in group_names:
+        if re.search(settings.SOCIAL_AUTH_ALLOW_MASK, group_name) == None:
+            continue
+        if group_name.split('_')[1] == "appsec":
+            global_role, _ = Global_Role.objects.create(user=user, role=Roles.Maintainer)
+            continue
         group, created_group = Dojo_Group.objects.get_or_create(name=group_name, social_provider=social_provider)
         if created_group:
             logger.debug("Group %s for social provider %s was created", str(group), social_provider)
@@ -145,6 +150,8 @@ def assign_user_to_groups(user, group_names, social_provider):
 
 def assign_groups_to_product_types(group_names, social_provider):
     for group_name in group_names:
+        if re.search(settings.SOCIAL_AUTH_ALLOW_MASK, group_name) == None:
+            continue
         product_name = group_name.split('_')[0]
         rights = group_name.split('_')[1]
         product_type, is_created = Product_Type.objects.get_or_create(name=product_name)
